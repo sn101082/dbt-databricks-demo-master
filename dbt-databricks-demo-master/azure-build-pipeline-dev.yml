@@ -1,0 +1,64 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+- master
+
+pool:
+  vmImage: 'Ubuntu-latest'
+
+steps:
+
+- task: DownloadSecureFile@1
+  name: SettingProfile
+  displayName: 'Downloading Profile for Databricks'
+  inputs:
+    secureFile: 'profiles.yml'
+
+- task: UsePythonVersion@0
+  displayName: 'Use Python $(python.version)'
+  inputs:
+    versionSpec: '3.7.10'
+
+- script: |
+    echo Installing $(SettingProfile.secureFilePath) to the ~/.dbt...
+    mkdir ~/.dbt
+    cp $(SettingProfile.secureFilePath) ~/.dbt/profiles.yml
+  displayName: Installing Profile for Databricks
+
+- script: |
+    sudo apt-get update
+    sudo apt-get install libsasl2-dev
+    sudo apt-get install git libpq-dev python-dev python3-pip 
+    sudo apt-get remove python-cffi
+    pip install --upgrade cffi
+    pip install cryptography
+  displayName: Install prerequisit Linux packages
+
+- script: |
+    pip install dbt 
+    pip install "dbt-spark[PyHive]" 
+    export PATH=$PATH:/home/vsts_azpcontainer/.local/bin
+    dbt compile
+    dbt seed 
+    dbt run
+    dbt test
+    dbt docs generate
+  displayName: 'Compile, Test, and Run'
+
+
+- script: |
+    
+    git -c http.extraheader="AUTHORIZATION: bearer $(System.AccessToken)" clone --branch target https://dev.azure.com/valdasops/DataPlatform/_git/azure-databricks-demo
+    rm rm -r azure-databricks-demo/target/*
+    cp -R target azure-databricks-demo
+    cd azure-databricks-demo
+    git config --global user.name "Valdas (Build Agent)"
+    git config --global user.email "valdas@maksimavicius.eu"
+    git add .
+    git commit -m "DBT Target artifacts on $(Build.BuildNumber) build"
+    git -c http.extraheader="AUTHORIZATION: bearer $(System.AccessToken)" push origin target
+  displayName: Push target folder to Git
+
